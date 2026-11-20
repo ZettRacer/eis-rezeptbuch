@@ -1,0 +1,754 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Eis-Rezeptbuch</title>
+<meta name="description" content="Eisrezepte aus der Eisbilanz-Excel suchen und auf die Wunschmenge umrechnen.">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#16242b" media="(prefers-color-scheme: dark)">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+:root { padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+body { margin: 0; }
+img { max-width: 100%; }
+[hidden] { display: none !important; }
+</style>
+</head>
+<body><link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Inter:wght@400;500;600&display=swap">
+<style>
+/* Layout: eine Spalte wie ein Rezeptkärtchen – oben Suche + Kategorien, darunter Liste; Rezept als eigene Ansicht mit Mengenrechner */
+:root {
+  --bg: #f2f6f7;
+  --surface: #ffffff;
+  --ink: #15262e;
+  --muted: #5b707b;
+  --line: #d9e3e7;
+  --accent: #b0245a;          /* Himbeere */
+  --accent-soft: #f7e2ea;
+  --accent-ink: #ffffff;
+  --pist: #4f7f2e;            /* Pistazie = Emil-Fertigmischung */
+  --pist-soft: #e5efdc;
+  --done: #9aabb3;
+  --font-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --font-body: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --radius: 12px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e181d; --surface: #16242b; --ink: #e4edf0; --muted: #93a8b2; --line: #263841;
+    --accent: #f0709f; --accent-soft: #3a1828; --accent-ink: #1c0711;
+    --pist: #9fcb7c; --pist-soft: #1f2f19; --done: #5c707a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e181d; --surface: #16242b; --ink: #e4edf0; --muted: #93a8b2; --line: #263841;
+  --accent: #f0709f; --accent-soft: #3a1828; --accent-ink: #1c0711;
+  --pist: #9fcb7c; --pist-soft: #1f2f19; --done: #5c707a;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  background: var(--bg); color: var(--ink);
+  font-family: var(--font-body); font-size: 16px; line-height: 1.45;
+}
+body::before {
+  content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px);
+  z-index: 10; background: var(--surface);
+}
+.wrap {
+  max-width: 680px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+button, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; }
+
+/* Kopfleiste */
+.top {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5;
+  background: var(--surface); border-bottom: 1px solid var(--line);
+}
+.top .wrap { padding-block: 12px 10px; display: grid; gap: 10px; }
+.brand { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.brand h1 { font-size: 1.35rem; letter-spacing: -0.01em; }
+.brand h1 span { color: var(--accent); }
+.ghost {
+  border: 1px solid var(--line); background: transparent; border-radius: 999px;
+  padding: 6px 12px; font-size: 0.85rem; font-weight: 500; color: var(--muted);
+  text-decoration: none; white-space: nowrap;
+}
+.search {
+  width: 100%; border: 1px solid var(--line); background: var(--bg);
+  border-radius: var(--radius); padding: 11px 14px; font-size: 1rem;
+}
+.search::placeholder { color: var(--muted); }
+.chips {
+  display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none;
+  margin-inline: -4px; padding: 2px 4px 2px;
+}
+.chips::-webkit-scrollbar { display: none; }
+.chip {
+  flex: none; border: 1px solid var(--line); background: var(--surface);
+  border-radius: 999px; padding: 6px 12px; font-size: 0.85rem; font-weight: 500;
+  display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+}
+.chip .n { color: var(--muted); font-variant-numeric: tabular-nums; font-weight: 400; }
+.chip[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--bg); }
+.chip[aria-pressed="true"] .n { color: inherit; opacity: 0.7; }
+.prefbar { display: flex; align-items: center; gap: 10px; font-size: 0.82rem; color: var(--muted); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; padding: 2px; background: var(--bg); min-width: 0; }
+.seg button, .seg a {
+  border: 0; background: transparent; border-radius: 999px; padding: 5px 11px; font-size: 0.82rem; font-weight: 500;
+  display: inline-flex; align-items: center; gap: 6px; color: var(--muted); text-decoration: none; white-space: nowrap;
+}
+.seg [aria-pressed="true"], .seg [aria-current="true"] { background: var(--surface); color: var(--ink); font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.12); }
+.seg.wide { display: flex; }
+.seg.wide > * { flex: 1 1 0; justify-content: center; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--pist); flex: none; }
+
+/* Liste */
+.count { color: var(--muted); font-size: 0.85rem; padding-block: 14px 6px; }
+.list { list-style: none; margin: 0; padding: 0 0 40px; }
+.row {
+  display: grid; gap: 2px; padding: 12px 2px; border-bottom: 1px solid var(--line);
+  text-decoration: none; color: inherit;
+}
+.row:active { background: var(--accent-soft); }
+.row .t { font-weight: 600; font-size: 1rem; }
+.row .t .star { color: var(--accent); margin-left: 4px; }
+.meta { font-size: 0.82rem; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
+.tag {
+  display: inline-flex; align-items: center; gap: 5px; font-size: 0.75rem; font-weight: 600;
+  letter-spacing: 0.02em; padding: 2px 8px; border-radius: 999px;
+  background: var(--accent-soft); color: var(--accent);
+}
+.tag.emil { background: var(--pist-soft); color: var(--pist); }
+.hit { color: var(--ink); }
+
+/* Leerer Zustand / Import */
+.empty { padding-block: 28px 48px; display: grid; gap: 18px; }
+.empty h2 { font-size: 1.6rem; }
+.empty p { margin: 0; color: var(--muted); max-width: 60ch; }
+.features { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.features li {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 12px 14px; display: grid; gap: 2px;
+}
+.features b { font-weight: 600; }
+.features span { color: var(--muted); font-size: 0.9rem; }
+.primary {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  background: var(--accent); color: var(--accent-ink); border: 0; border-radius: var(--radius);
+  padding: 14px 18px; font-weight: 600; font-size: 1rem; cursor: pointer; text-align: center;
+}
+.primary input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.status { min-height: 1.4em; font-size: 0.92rem; }
+.status.err { color: var(--accent); }
+.status.ok { color: var(--pist); font-weight: 500; }
+.panel {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 14px; display: grid; gap: 8px; font-size: 0.92rem;
+}
+.panel dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; }
+.panel dt { color: var(--muted); }
+.panel dd { margin: 0; min-width: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.newlist { margin: 0; padding-left: 18px; color: var(--muted); }
+.danger { background: transparent; border: 1px solid var(--line); color: var(--muted); border-radius: var(--radius); padding: 10px 14px; }
+.danger.armed { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+
+/* Rezeptansicht */
+.dbar {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5;
+  background: var(--surface); border-bottom: 1px solid var(--line);
+}
+.dbar .wrap { display: flex; justify-content: space-between; align-items: center; padding-block: 8px; gap: 8px; }
+.back { background: none; border: 0; padding: 8px 4px; font-weight: 600; color: var(--accent); display: inline-flex; gap: 4px; align-items: center; }
+.favbtn { background: none; border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; font-size: 0.85rem; color: var(--muted); }
+.favbtn[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.detail { padding-block: 16px 48px; display: grid; gap: 18px; }
+.detail h2 { font-size: 1.65rem; line-height: 1.15; letter-spacing: -0.01em; }
+.head { display: grid; gap: 8px; }
+.banner {
+  background: var(--pist-soft); color: var(--ink); border-radius: var(--radius);
+  padding: 10px 12px; font-size: 0.9rem;
+}
+.banner.warn { background: var(--accent-soft); }
+.banner button { background: none; border: 0; padding: 0; color: var(--pist); font-weight: 600; text-decoration: underline; }
+
+.want { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; display: grid; gap: 10px; }
+.want label { font-size: 0.75rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.stepper { display: grid; grid-template-columns: 48px 1fr 48px; gap: 8px; align-items: center; }
+.stepper button {
+  height: 48px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg);
+  font-size: 1.4rem; font-weight: 500; line-height: 1;
+}
+.field { position: relative; min-width: 0; }
+.field input {
+  width: 100%; height: 48px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg);
+  text-align: center; font-family: var(--font-display); font-size: 1.5rem; font-weight: 700;
+  font-variant-numeric: tabular-nums; padding: 0 34px;
+}
+.field span { position: absolute; right: 14px; top: 50%; transform: translateY(-50%); color: var(--muted); font-weight: 500; }
+.quick { display: flex; gap: 6px; }
+.quick button { flex: 1 1 0; min-width: 0; border: 1px solid var(--line); background: transparent; border-radius: 999px; padding: 6px 0; font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+.quick button[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+
+.tablebox { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+th { text-align: left; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); padding: 0 6px 8px; border-bottom: 2px solid var(--ink); }
+th.num, td.num { text-align: right; white-space: nowrap; }
+td { padding: 12px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+td.name { width: 100%; overflow-wrap: anywhere; }
+td.orig { color: var(--muted); font-size: 0.88rem; padding-top: 14px; }
+td.want-g { font-weight: 700; font-size: 1.12rem; }
+td .u { font-weight: 400; color: var(--muted); font-size: 0.82rem; margin-left: 2px; }
+tbody tr { cursor: pointer; }
+tbody tr.done td { color: var(--done); }
+tbody tr.done td.name .label { text-decoration: line-through; }
+.check { display: inline-block; width: 18px; height: 18px; border-radius: 5px; border: 1.5px solid var(--line); vertical-align: -3px; margin-right: 8px; position: relative; }
+tr.done .check { background: var(--pist); border-color: var(--pist); }
+tr.done .check::after { content: ""; position: absolute; left: 5px; top: 1px; width: 5px; height: 10px; border: solid var(--surface); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+.mix { background: var(--pist-soft); color: var(--pist); border: 0; border-radius: 999px; padding: 2px 9px; font-size: 0.78rem; font-weight: 600; margin-left: 6px; white-space: nowrap; }
+tfoot td { border-bottom: 0; font-weight: 600; padding-top: 10px; }
+.hint { font-size: 0.82rem; color: var(--muted); margin: 6px 0 0; }
+
+.sec { display: grid; gap: 8px; }
+.sec h3 { font-size: 1.05rem; }
+.links { display: flex; flex-wrap: wrap; gap: 8px; }
+.links a { text-decoration: none; color: inherit; border: 1px solid var(--line); background: var(--surface); border-radius: var(--radius); padding: 8px 12px; display: grid; gap: 2px; font-size: 0.9rem; }
+.links a small { color: var(--muted); }
+.notes { margin: 0; padding-left: 18px; display: grid; gap: 6px; max-width: 65ch; }
+.wake { justify-self: start; }
+.wake[aria-pressed="true"] { color: var(--pist); border-color: var(--pist); }
+
+@media (prefers-reduced-motion: no-preference) {
+  .row, .chip, .quick button { transition: background-color .15s, color .15s; }
+}
+</style>
+
+<div id="app">
+  <!-- Liste -->
+  <div id="listView">
+    <header class="top">
+      <div class="wrap">
+        <div class="brand">
+          <h1>Eis<span>·</span>Rezeptbuch</h1>
+          <a class="ghost" href="#excel" id="excelLink">Excel einlesen</a>
+        </div>
+        <input id="q" class="search" type="search" placeholder="Rezept oder Zutat suchen" autocomplete="off" enterkeyhint="search">
+        <div class="chips" id="chips" role="toolbar" aria-label="Kategorien"></div>
+        <div class="prefbar" id="prefBar" hidden>
+          <span>Öffnen mit</span>
+          <div class="seg" role="group" aria-label="Zubereitung beim Öffnen">
+            <button type="button" data-pref="einzel">Einzelzutaten</button>
+            <button type="button" data-pref="emil"><span class="dot" aria-hidden="true"></span>Emil-Mischung</button>
+          </div>
+        </div>
+      </div>
+    </header>
+    <main class="wrap">
+      <div id="count" class="count" aria-live="polite"></div>
+      <ul id="list" class="list"></ul>
+    </main>
+  </div>
+
+  <!-- Rezept -->
+  <div id="detailView" hidden>
+    <div class="dbar"><div class="wrap">
+      <button class="back" id="backBtn" type="button">‹ Alle Rezepte</button>
+      <button class="favbtn" id="favBtn" type="button" aria-pressed="false">☆ Merken</button>
+    </div></div>
+    <main class="wrap detail" id="detail"></main>
+  </div>
+
+  <!-- Excel einlesen -->
+  <div id="importView" hidden>
+    <div class="dbar"><div class="wrap">
+      <button class="back" id="backBtn2" type="button">‹ Zurück</button>
+    </div></div>
+    <main class="wrap empty" id="importMain"></main>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script>
+(function () {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  // ---------- Speicher (nur dieses Gerät) ----------
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } },
+    del(k) { try { localStorage.removeItem(k); } catch (e) {} }
+  };
+  const K = { db: "eis.db.v1", fav: "eis.fav", want: "eis.want", cat: "eis.cat", pref: "eis.pref" };
+
+  let DB = store.get(K.db, null);
+  let favs = new Set(store.get(K.fav, []));
+  let want = Number(store.get(K.want, 1000)) || 1000;
+  let cat = store.get(K.cat, "__all");
+  let override = null;           // {id, value, fromId, fromTitle} – Menge einer Emil-Mischung aus einem anderen Rezept
+  let checked = new Set(), checkedFor = null;
+  let inApp = false, listScroll = 0, currentId = null;
+  let byId = new Map(), byTitle = new Map(), byKey = new Map();
+
+  // ---------- Text-Helfer ----------
+  function norm(s) {
+    return String(s).toLowerCase().replace(/ß/g, "ss").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, " ").trim();
+  }
+  function slug(s) { return norm(s).replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "x"; }
+  // "Erdbeer-Sorbet Emil -18S" und "Erdbeer-Sorbet" bekommen denselben Schlüssel
+  function variantKey(t) {
+    return norm(t).replace(/emil\s*-?\s*18\s*(joghurt|[sj])?(?![a-z])/g, " ")
+      .replace(/[()]/g, " ").replace(/\s+/g, " ").replace(/[\s-]+$/, "").trim();
+  }
+  const isEmil = (name) => /emil/i.test(name);
+  function fmt(x) {
+    const d = x >= 10 ? 0 : x >= 1 ? 1 : 2;
+    return x.toLocaleString("de-DE", { minimumFractionDigits: 0, maximumFractionDigits: d });
+  }
+  const fmtInt = (x) => Math.round(x).toLocaleString("de-DE");
+
+  // ---------- Excel auslesen ----------
+  // Jedes Rezept: Titel in Spalte B, Kopfzeile "Zutaten | Menge | g | Wunschmenge", Zutaten bis "Gesamt".
+  function parseWorkbook(wb, fileName) {
+    const SKIP = /jetzt kaufen|^©/i;
+    const recipes = [], cats = [], ids = new Set();
+    for (const sn of wb.SheetNames) {
+      const ws = wb.Sheets[sn];
+      if (!ws || !ws["!ref"]) continue;
+      const rg = XLSX.utils.decode_range(ws["!ref"]);
+      const maxC = Math.min(rg.e.c, 25);
+      const cell = (r, c) => { const x = ws[XLSX.utils.encode_cell({ r, c })]; return x ? x.v : null; };
+      const txt = (r, c) => { const v = cell(r, c); return v == null ? "" : String(v).trim(); };
+      const heads = [];
+      for (let r = rg.s.r; r <= rg.e.r; r++) {
+        for (let c = 0; c <= maxC; c++) { if (txt(r, c) === "Zutaten") { heads.push({ r, c }); break; } }
+      }
+      if (!heads.length) continue;
+
+      const raw = [];
+      let prevEnd = -1;
+      heads.forEach((h, hi) => {
+        const { r, c } = h;
+        let amtC = c + 1;
+        for (let cc = c + 1; cc <= maxC; cc++) { if (/^menge$/i.test(txt(r, cc))) { amtC = cc; break; } }
+        const unitC = amtC + 1, tC = Math.max(0, c - 1);
+        let title = "", titleRow = r;
+        for (let rr = r - 1; rr > prevEnd && rr >= r - 10; rr--) {
+          const t = txt(rr, tC);
+          if (t && isNaN(Number(t)) && !SKIP.test(t)) { title = t; titleRow = rr; break; }
+        }
+        const nextHead = hi + 1 < heads.length ? heads[hi + 1].r : rg.e.r + 1;
+        const ings = [];
+        let rr = r + 1;
+        for (; rr < nextHead && rr <= r + 80; rr++) {
+          const name = txt(rr, c);
+          if (/^gesamt/i.test(name)) break;
+          if (!name) continue;
+          const a = Number(cell(rr, amtC));
+          if (!isFinite(a)) continue;
+          ings.push([name, a, txt(rr, unitC) || "g"]);
+        }
+        raw.push({ title, titleRow, end: rr, tC, ings });
+        prevEnd = rr;
+      });
+
+      let n = 0;
+      raw.forEach((rec, i) => {
+        // Hinweise: Text in Spalte B zwischen diesem und dem nächsten Rezept
+        const stop = i + 1 < raw.length ? raw[i + 1].titleRow : Math.min(rec.end + 40, rg.e.r + 1);
+        const notes = [];
+        for (let rr = rec.end + 1; rr < stop; rr++) {
+          const t = txt(rr, rec.tC);
+          if (t && isNaN(Number(t)) && !SKIP.test(t)) notes.push(t);
+        }
+        const ings = rec.ings.filter((x) => x[1] > 0);
+        if (!ings.length) return;
+        const title = rec.title || sn + " – Rezept " + (i + 1);
+        let id = slug(sn) + "--" + slug(title), k = 2;
+        while (ids.has(id)) id = slug(sn) + "--" + slug(title) + "-" + k++;
+        ids.add(id);
+        recipes.push({ id, cat: sn, title, ings, notes });
+        n++;
+      });
+      if (n) cats.push({ name: sn, count: n });
+    }
+    // Platzhalter (z. B. leere "Frei"-Vorlagen mit 1 g) ausblenden – außer es ist eine Fertigmischung,
+    // die in anderen Rezepten als Zutat vorkommt (Emil -18 usw.): die bleibt mit Hinweis sichtbar.
+    const used = new Set();
+    recipes.forEach((r) => r.ings.forEach((x) => used.add(norm(x[0]))));
+    const kept = recipes.filter((r) => r.ings.reduce((s, x) => s + x[1], 0) >= 10 || used.has(norm(r.title)));
+    const keptCats = cats.map((c) => ({ name: c.name, count: kept.filter((r) => r.cat === c.name).length })).filter((c) => c.count);
+    return { imported: new Date().toISOString(), file: fileName, recipes: kept, cats: keptCats };
+  }
+
+  function buildIndex() {
+    byId = new Map(); byTitle = new Map(); byKey = new Map();
+    if (!DB) return;
+    for (const r of DB.recipes) {
+      byId.set(r.id, r);
+      r.n = norm(r.title);
+      r.k = variantKey(r.title);
+      r.total = r.ings.reduce((s, x) => s + x[1], 0);
+      r.ni = r.ings.map((x) => norm(x[0])).join(" | ");
+      if (!byTitle.has(r.n)) byTitle.set(r.n, []);
+      byTitle.get(r.n).push(r);
+      if (r.k) { if (!byKey.has(r.k)) byKey.set(r.k, []); byKey.get(r.k).push(r); }
+    }
+  }
+  function linkedRecipe(name, self) {
+    const c = (byTitle.get(norm(name)) || []).filter((r) => r.id !== self.id);
+    return c.find((r) => r.cat === self.cat) || c[0] || null;
+  }
+
+  // ---------- Liste ----------
+  const collator = new Intl.Collator("de", { sensitivity: "base", numeric: true });
+  const byTitleSort = (a, b) => collator.compare(a.title, b.title);
+
+  function renderChips() {
+    const chips = $("chips");
+    if (!DB) { chips.innerHTML = ""; return; }
+    if (cat !== "__all" && cat !== "__fav" && !DB.cats.some((c) => c.name === cat)) cat = "__all";
+    const items = [{ v: "__all", label: "Alle", n: DB.recipes.length }];
+    if (favs.size) items.push({ v: "__fav", label: "★ Gemerkt", n: DB.recipes.filter((r) => favs.has(r.id)).length });
+    for (const c of DB.cats) items.push({ v: c.name, label: c.name, n: c.count, emil: isEmil(c.name) });
+    chips.innerHTML = items.map((c) =>
+      `<button type="button" class="chip" data-cat="${esc(c.v)}" aria-pressed="${c.v === cat}">` +
+      (c.emil ? '<span class="dot" aria-hidden="true"></span>' : "") +
+      `${esc(c.label)} <span class="n">${c.n}</span></button>`).join("");
+  }
+
+  function renderList() {
+    const list = $("list"), count = $("count");
+    if (!DB) { count.textContent = ""; list.innerHTML = ""; renderEmpty(); return; }
+    let pool = DB.recipes;
+    if (cat === "__fav") pool = pool.filter((r) => favs.has(r.id));
+    else if (cat !== "__all") pool = pool.filter((r) => r.cat === cat);
+    const q = norm($("q").value);
+    // In "Alle" und "Gemerkt": normale Rezepte und Emil-Varianten zu einem Eintrag zusammenfassen
+    const grouping = cat === "__all" || cat === "__fav";
+    $("prefBar").hidden = !grouping;
+    if (grouping) {
+      const seen = new Set(), out = [];
+      for (const r of pool) {
+        if (seen.has(r.id)) continue;
+        const grp = (r.k ? byKey.get(r.k) : null) || [r];
+        grp.forEach((x) => seen.add(x.id));
+        out.push(pickVariant(grp));
+      }
+      pool = out;
+    }
+    let items;
+    if (q) {
+      const words = q.split(" ");
+      const t = [], ing = [];
+      for (const r of pool) {
+        if (words.every((w) => r.n.includes(w))) t.push(r);
+        else if (words.every((w) => r.n.includes(w) || r.ni.includes(w))) ing.push(r);
+      }
+      items = t.sort(byTitleSort).map((r) => [r, null]).concat(ing.sort(byTitleSort).map((r) => {
+        const hit = r.ings.filter((x) => words.some((w) => norm(x[0]).includes(w))).map((x) => x[0]);
+        return [r, hit.slice(0, 2).join(", ")];
+      }));
+    } else {
+      items = pool.slice().sort(byTitleSort).map((r) => [r, null]);
+    }
+    count.textContent = items.length === 1 ? "1 Rezept" : items.length + " Rezepte";
+    if (!items.length) {
+      list.innerHTML = `<li class="count">Nichts gefunden. Probiere einen kürzeren Suchbegriff oder die Kategorie „Alle“.</li>`;
+      return;
+    }
+    list.innerHTML = items.map(([r, hit]) => {
+      const grp = grouping && r.k ? (byKey.get(r.k) || [r]) : [r];
+      const shown = grouping ? (grp.find((x) => !isEmil(x.cat)) || r).title : r.title;
+      const fav = grp.some((x) => favs.has(x.id));
+      return `<li><a class="row" href="#r-${r.id}" data-go>` +
+      `<span class="t">${esc(shown)}${fav ? '<span class="star" aria-label="gemerkt">★</span>' : ""}</span>` +
+      `<span class="meta">${grp.map((x) => `<span class="tag${isEmil(x.cat) ? " emil" : ""}">${esc(x.cat)}</span>`).join("")}` +
+      (grp.length > 1 ? "" : `<span>${r.ings.length} Zutaten</span>`) +
+      (hit ? `<span class="hit">enthält ${esc(hit)}</span>` : "") +
+      `</span></a></li>`;
+    }).join("");
+  }
+
+  // Welche Zubereitung beim Antippen öffnen: Einzelzutaten oder mit Emil-Fertigmischung
+  let pref = store.get(K.pref, "einzel");
+  function pickVariant(grp) {
+    if (grp.length === 1) return grp[0];
+    return grp.find((x) => (pref === "emil") === isEmil(x.cat)) || grp[0];
+  }
+  function renderPref() {
+    document.querySelectorAll("[data-pref]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.pref === pref));
+  }
+
+  function renderEmpty() {
+    $("list").innerHTML = `<li class="empty">
+      <h2>Noch keine Rezepte auf diesem Gerät</h2>
+      <p>Wähle deine Eisbilanz-Excel aus. Die Rezepte werden direkt hier im Browser gelesen und auf diesem Gerät gespeichert. Hochgeladen wird nichts.</p>
+      <label class="primary" for="fileEmpty">Excel-Datei auswählen<input id="fileEmpty" type="file" accept=".xlsx,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"></label>
+      <div class="status" id="statusEmpty" aria-live="polite"></div>
+      <ul class="features">
+        <li><b>Suchen und filtern</b><span>Nach Rezeptname oder Zutat, sortiert nach den Reitern wie Emil -18 oder Sorbet.</span></li>
+        <li><b>Wunschmenge eingeben</b><span>Alle Zutaten werden sofort auf deine Menge umgerechnet.</span></li>
+        <li><b>Neue Excel? Einfach neu einlesen</b><span>Gemerkte Rezepte und deine Wunschmenge bleiben erhalten.</span></li>
+      </ul></li>`;
+    $("fileEmpty").addEventListener("change", (e) => handleFile(e.target, $("statusEmpty")));
+  }
+
+  // ---------- Rezept ----------
+  function currentWant(r) { return override && override.id === r.id ? override.value : want; }
+
+  function showDetail(id) {
+    const r = byId.get(id);
+    if (!r) { location.hash = ""; return; }
+    if (override && override.id !== id) override = null;
+    if (checkedFor !== id) { checked = new Set(); checkedFor = id; }
+    currentId = id;
+    const fav = $("favBtn");
+    fav.setAttribute("aria-pressed", favs.has(id));
+    fav.textContent = favs.has(id) ? "★ Gemerkt" : "☆ Merken";
+
+    const variants = (r.k ? byKey.get(r.k) || [] : []).filter((x) => x.id !== r.id);
+    const w = currentWant(r);
+    $("detail").innerHTML = `
+      <div class="head">
+        <div><span class="tag${isEmil(r.cat) ? " emil" : ""}">${esc(r.cat)}</span></div>
+        <h2>${esc(r.title)}</h2>
+      </div>
+      ${variants.length ? `<div class="seg wide" role="group" aria-label="Zubereitung">${[r, ...variants]
+        .sort((a, b) => isEmil(a.cat) - isEmil(b.cat) || collator.compare(a.cat, b.cat))
+        .map((v) => `<a href="#r-${v.id}" data-variant="${v.id}" aria-current="${v.id === r.id}">${isEmil(v.cat) ? '<span class="dot" aria-hidden="true"></span>' : ""}${esc(variants.length === 1 ? (isEmil(v.cat) ? "Mit " + v.cat.replace(/ Joghurt$/, "J") : "Einzelzutaten") : v.cat)}</a>`).join("")}</div>` : ""}
+      ${r.total < 10 ? `<div class="banner warn">Für diese Mischung sind in der Excel noch keine Mengen eingetragen. Trage die Werte aus dem Buch in der Spalte „Menge“ ein und lies die Excel danach neu ein.</div>` : ""}
+      ${override && override.id === r.id ? `<div class="banner">Fertigmischung für <button type="button" data-back-to="${esc(override.fromId)}">${esc(override.fromTitle)}</button>: ${fmtInt(override.value)} g</div>` : ""}
+      <div class="want">
+        <label for="wantInput">Wunschmenge gesamt</label>
+        <div class="stepper">
+          <button type="button" data-step="-100" aria-label="100 g weniger">−</button>
+          <div class="field"><input id="wantInput" type="number" inputmode="decimal" min="1" step="1" value="${Math.round(w)}"><span>g</span></div>
+          <button type="button" data-step="100" aria-label="100 g mehr">+</button>
+        </div>
+        <div class="quick">${[500, 750, 1000, 1500, 2000].map((v) => `<button type="button" data-set="${v}" aria-pressed="${Math.round(w) === v}">${v.toLocaleString("de-DE")}</button>`).join("")}</div>
+      </div>
+      <div class="sec">
+        <div class="tablebox"><table>
+          <thead><tr><th>Zutat</th><th class="num">Rezept</th><th class="num" id="wantHead"></th></tr></thead>
+          <tbody id="ingBody"></tbody>
+          <tfoot><tr><td>Gesamt</td><td class="num orig">${fmt(r.total)}<span class="u">g</span></td><td class="num" id="wantTotal"></td></tr></tfoot>
+        </table></div>
+        <p class="hint">Tippe eine Zutat an, sobald sie abgewogen ist.</p>
+      </div>
+      ${r.notes.length ? `<div class="sec"><h3>Hinweise</h3><ul class="notes">${r.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul></div>` : ""}
+      ${"wakeLock" in navigator ? `<button type="button" class="ghost wake" id="wakeBtn" aria-pressed="${!!wakeLock}">${wakeLock ? "Display bleibt an" : "Display anlassen"}</button>` : ""}
+    `;
+    renderTable();
+  }
+
+  function renderTable() {
+    const r = byId.get(currentId);
+    if (!r) return;
+    const w = currentWant(r), f = w / r.total;
+    $("wantHead").textContent = "Für " + fmtInt(w) + " g";
+    $("wantTotal").innerHTML = fmt(w) + '<span class="u">g</span>';
+    $("ingBody").innerHTML = r.ings.map((x, i) => {
+      const link = linkedRecipe(x[0], r);
+      const done = checked.has(i);
+      return `<tr data-i="${i}" class="${done ? "done" : ""}" aria-checked="${done}" role="checkbox">` +
+        `<td class="name"><span class="check" aria-hidden="true"></span><span class="label">${esc(x[0])}</span>` +
+        (link ? `<button type="button" class="mix" data-mix="${esc(link.id)}" data-amt="${x[1] * f}">${/emil/i.test(link.title) ? "Mischung" : "Rezept"} ›</button>` : "") + `</td>` +
+        `<td class="num orig">${fmt(x[1])}<span class="u">${esc(x[2])}</span></td>` +
+        `<td class="num want-g">${fmt(x[1] * f)}<span class="u">${esc(x[2])}</span></td></tr>`;
+    }).join("");
+    document.querySelectorAll(".quick button").forEach((b) => b.setAttribute("aria-pressed", Math.round(w) === Number(b.dataset.set)));
+  }
+
+  function setWant(v, fromInput) {
+    if (!isFinite(v) || v <= 0) return;
+    const r = byId.get(currentId);
+    if (r && override && override.id === r.id) override.value = v;
+    else { want = v; store.set(K.want, want); }
+    if (!fromInput) { const inp = $("wantInput"); if (inp) inp.value = Math.round(v); }
+    renderTable();
+  }
+
+  // ---------- Display anlassen ----------
+  let wakeLock = null;
+  async function toggleWake() {
+    try {
+      if (wakeLock) { await wakeLock.release(); wakeLock = null; }
+      else { wakeLock = await navigator.wakeLock.request("screen"); wakeLock.addEventListener("release", () => { wakeLock = null; updWake(); }); }
+    } catch (e) { wakeLock = null; const b = $("wakeBtn"); if (b) { b.textContent = "Hier nicht verfügbar"; b.disabled = true; } return; }
+    updWake();
+  }
+  function updWake() { const b = $("wakeBtn"); if (b) { b.setAttribute("aria-pressed", !!wakeLock); b.textContent = wakeLock ? "Display bleibt an" : "Display anlassen"; } }
+
+  // ---------- Excel einlesen ----------
+  function renderImport() {
+    const info = DB ? `
+      <div class="panel">
+        <dl>
+          <dt>Datei</dt><dd>${esc(DB.file || "–")}</dd>
+          <dt>Eingelesen</dt><dd>${new Date(DB.imported).toLocaleString("de-DE", { dateStyle: "medium", timeStyle: "short" })}</dd>
+          <dt>Rezepte</dt><dd>${DB.recipes.length} in ${DB.cats.length} Kategorien</dd>
+        </dl>
+      </div>` : "";
+    $("importMain").innerHTML = `
+      <h2>Excel einlesen</h2>
+      <p>Wenn es eine neue Version der Eisbilanz-Excel gibt, wähle sie hier aus. Die bisherigen Rezepte werden ersetzt, gemerkte Rezepte und deine Wunschmenge bleiben.</p>
+      <label class="primary" for="fileImport">${DB ? "Neue Excel-Datei auswählen" : "Excel-Datei auswählen"}<input id="fileImport" type="file" accept=".xlsx,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"></label>
+      <div class="status" id="statusImport" aria-live="polite"></div>
+      <div id="importResult"></div>
+      ${info}
+      <p>Die Datei wird nur in diesem Browser gelesen und auf diesem Gerät gespeichert. Auf jedem Gerät (Handy, PC) einmal einlesen.</p>
+      ${DB ? `<button type="button" class="danger" id="wipeBtn">Rezepte von diesem Gerät entfernen</button>` : ""}
+    `;
+    $("fileImport").addEventListener("change", (e) => handleFile(e.target, $("statusImport")));
+    const wipe = $("wipeBtn");
+    if (wipe) wipe.addEventListener("click", () => {
+      if (!wipe.classList.contains("armed")) { wipe.classList.add("armed"); wipe.textContent = "Wirklich entfernen? Nochmal tippen"; return; }
+      DB = null; store.del(K.db); buildIndex(); renderChips(); location.hash = ""; route();
+    });
+  }
+
+  function handleFile(input, status) {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    status.className = "status"; status.textContent = "Lese " + file.name + " …";
+    const reader = new FileReader();
+    reader.onerror = () => { status.className = "status err"; status.textContent = "Die Datei konnte nicht gelesen werden. Bitte nochmal auswählen."; };
+    reader.onload = () => setTimeout(() => importBuffer(reader.result, file.name, status), 30);
+    reader.readAsArrayBuffer(file);
+    input.value = "";
+  }
+
+  function importBuffer(buf, name, status) {
+    status = status || { set textContent(v) {}, set className(v) {} };
+    if (typeof XLSX === "undefined") {
+      status.className = "status err"; status.textContent = "Das Excel-Modul wurde nicht geladen. Bitte mit Internetverbindung neu laden."; return null;
+    }
+    let data;
+    try {
+      const wb = XLSX.read(buf, { type: "array", cellFormula: false, cellHTML: false, cellStyles: false, cellNF: false, cellText: false, cellDates: false });
+      data = parseWorkbook(wb, name);
+    } catch (e) {
+      status.className = "status err"; status.textContent = "Das ist keine lesbare Excel-Datei (.xlsx)."; return null;
+    }
+    if (!data.recipes.length) {
+      status.className = "status err"; status.textContent = "In dieser Datei wurden keine Rezepte gefunden. Erwartet werden Tabellen mit den Spalten „Zutaten“ und „Menge“."; return null;
+    }
+    const oldIds = DB ? new Set(DB.recipes.map((r) => r.id)) : null;
+    DB = data;
+    const saved = store.set(K.db, DB);
+    buildIndex(); renderChips();
+    const fresh = oldIds ? DB.recipes.filter((r) => !oldIds.has(r.id)) : [];
+    status.className = "status ok";
+    status.textContent = DB.recipes.length + " Rezepte eingelesen" + (oldIds ? ", davon " + fresh.length + " neu." : ".") +
+      (saved ? "" : " Speichern auf diesem Gerät war nicht möglich, beim nächsten Öffnen bitte erneut einlesen.");
+    const res = $("importResult");
+    if (res && fresh.length) {
+      res.innerHTML = `<div class="panel"><b>Neu dazugekommen</b><ul class="newlist">${fresh.slice(0, 15).map((r) => `<li>${esc(r.title)} <small>(${esc(r.cat)})</small></li>`).join("")}${fresh.length > 15 ? `<li>… und ${fresh.length - 15} weitere</li>` : ""}</ul></div>`;
+    }
+    if (!$("importView").hidden) { /* bleibt auf der Import-Seite, damit das Ergebnis sichtbar ist */ }
+    else route();
+    return { count: DB.recipes.length, fresh: fresh.length, cats: DB.cats };
+  }
+  window.eisImport = importBuffer; // für Tests
+
+  // ---------- Navigation ----------
+  function show(view) {
+    $("listView").hidden = view !== "list";
+    $("detailView").hidden = view !== "detail";
+    $("importView").hidden = view !== "import";
+  }
+  let lastView = null;
+  function route() {
+    const h = decodeURIComponent(location.hash.slice(1));
+    if (lastView === "list") listScroll = window.scrollY;
+    if (h.startsWith("r-") && byId.has(h.slice(2))) {
+      show("detail"); showDetail(h.slice(2)); window.scrollTo(0, 0); lastView = "detail";
+    } else if (h === "excel") {
+      show("import"); renderImport(); window.scrollTo(0, 0); lastView = "import";
+    } else {
+      show("list"); renderList();
+      if (lastView && lastView !== "list") window.scrollTo(0, listScroll);
+      lastView = "list";
+    }
+  }
+  function goBack() { if (inApp && history.length > 1) history.back(); else location.hash = ""; }
+
+  // ---------- Ereignisse ----------
+  document.addEventListener("click", (e) => {
+    const go = e.target.closest("[data-go]");
+    if (go) inApp = true;
+    const variant = e.target.closest("[data-variant]");
+    if (variant) {
+      e.preventDefault();
+      const v = byId.get(variant.dataset.variant);
+      if (v) { pref = isEmil(v.cat) ? "emil" : "einzel"; store.set(K.pref, pref); renderPref(); }
+      location.replace("#r-" + variant.dataset.variant); return;
+    }
+    const prefBtn = e.target.closest("[data-pref]");
+    if (prefBtn) { pref = prefBtn.dataset.pref; store.set(K.pref, pref); renderPref(); renderList(); return; }
+    const chip = e.target.closest(".chip");
+    if (chip) { cat = chip.dataset.cat; store.set(K.cat, cat); renderChips(); renderList(); window.scrollTo(0, 0); return; }
+    const mix = e.target.closest("[data-mix]");
+    if (mix) {
+      e.stopPropagation();
+      const from = byId.get(currentId);
+      override = { id: mix.dataset.mix, value: Number(mix.dataset.amt), fromId: from.id, fromTitle: from.title };
+      inApp = true; location.hash = "r-" + mix.dataset.mix; return;
+    }
+    const backTo = e.target.closest("[data-back-to]");
+    if (backTo) { goBack(); return; }
+    const row = e.target.closest("#ingBody tr");
+    if (row) { const i = Number(row.dataset.i); checked.has(i) ? checked.delete(i) : checked.add(i); renderTable(); return; }
+    const step = e.target.closest("[data-step]");
+    if (step) { const r = byId.get(currentId); setWant(Math.max(50, Math.round(currentWant(r)) + Number(step.dataset.step))); return; }
+    const set = e.target.closest("[data-set]");
+    if (set) { setWant(Number(set.dataset.set)); return; }
+    if (e.target.closest("#wakeBtn")) { toggleWake(); return; }
+    if (e.target.closest("#excelLink")) inApp = true;
+  });
+  document.addEventListener("input", (e) => {
+    if (e.target.id === "wantInput") setWant(Number(String(e.target.value).replace(",", ".")), true);
+    if (e.target.id === "q") renderList();
+  });
+  $("backBtn").addEventListener("click", goBack);
+  $("backBtn2").addEventListener("click", goBack);
+  $("favBtn").addEventListener("click", () => {
+    if (!currentId) return;
+    favs.has(currentId) ? favs.delete(currentId) : favs.add(currentId);
+    store.set(K.fav, [...favs]);
+    const b = $("favBtn"); b.setAttribute("aria-pressed", favs.has(currentId)); b.textContent = favs.has(currentId) ? "★ Gemerkt" : "☆ Merken";
+    renderChips();
+  });
+  document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && wakeLock === null && $("wakeBtn") && $("wakeBtn").getAttribute("aria-pressed") === "true") toggleWake(); });
+  window.addEventListener("hashchange", route);
+
+  buildIndex();
+  renderChips();
+  renderPref();
+  route();
+})();
+</script>
+
+<script>
+  // Offline-Speicher aktivieren und Browser bitten, die Daten nicht zu löschen
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+  }
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+</script>
+</body>
+</html>
